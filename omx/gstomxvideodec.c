@@ -1007,9 +1007,9 @@ gst_omx_video_dec_shutdown (GstOMXVideoDec * self)
 
     gst_omx_port_deallocate_buffers (self->dec_in_port);
     gst_omx_video_dec_deallocate_output_buffers (self);
-    gst_omx_component_close_tunnel (self->dec, self->dec_out_port,
-        self->resizer, self->res_in_port);
-    if (state > OMX_StateLoaded) {
+    if (state > OMX_StateLoaded && self->use_resizer) {
+      gst_omx_component_close_tunnel (self->dec, self->dec_out_port,
+          self->resizer, self->res_in_port);
       gst_omx_component_get_state (self->resizer, 5 * GST_SECOND);
       gst_omx_component_get_state (self->dec, 1 * GST_SECOND);
     }
