@@ -3039,7 +3039,6 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
 #ifdef USE_OMX_TARGET_RPI
   GList *image_negotiation_map = NULL;
   OMX_IMAGE_PARAM_PORTFORMATTYPE param_image;
-  GstCaps *optimal_caps = NULL;
 #endif
 
   GST_DEBUG_OBJECT (self, "Trying to negotiate a video format with downstream");
@@ -3080,13 +3079,29 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   }
 #endif
 
-
+  /* respect prefered caps */
   if (!gst_caps_is_empty (comp_supported_caps)) {
-    GstCaps *tmp;
+    gint n = gst_caps_get_size (intersection);
+    gint i = 0;
+    GstCaps *tmp = NULL;
 
-    tmp = gst_caps_intersect (comp_supported_caps, intersection);
+    /* caps i is prefered over caps i+1 */
+    for (i = 0; i < n; ++i) {
+      GstCaps *caps_i = gst_caps_copy_nth (intersection, i);
+      tmp = gst_caps_intersect (comp_supported_caps, caps_i);
+      gst_caps_unref (caps_i);
+
+      if (!gst_caps_is_empty (tmp)) {
+        /* downstream caps_i is supported */
+        break;
+      }
+
+      gst_caps_unref (tmp);
+      tmp = NULL;
+    }
+
     gst_caps_unref (intersection);
-    intersection = tmp;
+    intersection = tmp ? tmp : gst_caps_new_empty ();
   }
   gst_caps_unref (comp_supported_caps);
 
@@ -3103,26 +3118,11 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
 
     return FALSE;
   }
-#ifdef USE_OMX_TARGET_RPI
-  /* on RPI we know that the more efficient is RGB16
-   * so just use it if your pipeline allows it
-   * (no pb with eglimage because it will try eglimage first)
-   * we can add more preferences here if there are some in
-   * the future
-   */
-  optimal_caps =
-      gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "RGB16",
-      NULL);
-  if (gst_caps_can_intersect (optimal_caps, intersection)) {
-    GstCaps *tmp = gst_caps_intersect (optimal_caps, intersection);
-    gst_caps_unref (intersection);
-    intersection = tmp;
-  }
-  gst_caps_unref (optimal_caps);
-#endif
 
   intersection = gst_caps_truncate (intersection);
   intersection = gst_caps_fixate (intersection);
+
+  GST_DEBUG_OBJECT (self, "fixated caps: %" GST_PTR_FORMAT, intersection);
 
   s = gst_caps_get_structure (intersection, 0);
   format_str = gst_structure_get_string (s, "format");
