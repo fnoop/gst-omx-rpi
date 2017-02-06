@@ -1077,6 +1077,7 @@ gst_omx_video_dec_change_state (GstElement * element, GstStateChange transition)
     case GST_STATE_CHANGE_READY_TO_PAUSED:
       self->downstream_flow_ret = GST_FLOW_OK;
       self->draining = FALSE;
+      self->flushing = FALSE;
       self->started = FALSE;
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
@@ -3689,6 +3690,11 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
   }
 #endif
 
+  g_mutex_lock (&self->drain_lock);
+  self->flushing = TRUE;
+  g_cond_broadcast (&self->drain_cond);
+  g_mutex_unlock (&self->drain_lock);
+
   /* Wait until the srcpad loop is finished,
    * unlock GST_VIDEO_DECODER_STREAM_LOCK to prevent deadlocks
    * caused by using this lock from inside the loop function */
@@ -3725,6 +3731,7 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
   /* Start the srcpad loop again */
   self->last_upstream_ts = 0;
   self->eos = FALSE;
+  self->flushing = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
   gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
       (GstTaskFunction) gst_omx_video_dec_loop, decoder, NULL);
@@ -4071,35 +4078,39 @@ gst_omx_video_dec_drain (GstOMXVideoDec * self, gboolean is_eos)
   }
 
   g_mutex_lock (&self->drain_lock);
-  self->draining = TRUE;
-  buf->omx_buf->nFilledLen = 0;
-  buf->omx_buf->nTimeStamp =
-      gst_util_uint64_scale (self->last_upstream_ts, OMX_TICKS_PER_SECOND,
-      GST_SECOND);
-  buf->omx_buf->nTickCount = 0;
-  buf->omx_buf->nFlags |= OMX_BUFFERFLAG_EOS;
-  err = gst_omx_port_release_buffer (self->dec_in_port, buf);
-  if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (self, "Failed to drain component: %s (0x%08x)",
-        gst_omx_error_to_string (err), err);
-    g_mutex_unlock (&self->drain_lock);
-    GST_VIDEO_DECODER_STREAM_LOCK (self);
-    return GST_FLOW_ERROR;
-  }
+  if (!self->flushing) {
+    self->draining = TRUE;
+    buf->omx_buf->nFilledLen = 0;
+    buf->omx_buf->nTimeStamp =
+        gst_util_uint64_scale (self->last_upstream_ts, OMX_TICKS_PER_SECOND,
+        GST_SECOND);
+    buf->omx_buf->nTickCount = 0;
+    buf->omx_buf->nFlags |= OMX_BUFFERFLAG_EOS;
+    err = gst_omx_port_release_buffer (self->dec_in_port, buf);
+    if (err != OMX_ErrorNone) {
+      GST_ERROR_OBJECT (self, "Failed to drain component: %s (0x%08x)",
+          gst_omx_error_to_string (err), err);
+      g_mutex_unlock (&self->drain_lock);
+      GST_VIDEO_DECODER_STREAM_LOCK (self);
+      return GST_FLOW_ERROR;
+    }
 
-  GST_DEBUG_OBJECT (self, "Waiting until component is drained");
+    GST_DEBUG_OBJECT (self, "Waiting until component is drained");
 
-  if (G_UNLIKELY (self->dec->hacks & GST_OMX_HACK_DRAIN_MAY_NOT_RETURN)) {
-    gint64 wait_until = g_get_monotonic_time () + G_TIME_SPAN_SECOND / 2;
+    if (G_UNLIKELY (self->dec->hacks & GST_OMX_HACK_DRAIN_MAY_NOT_RETURN)) {
+      gint64 wait_until = g_get_monotonic_time () + G_TIME_SPAN_SECOND / 2;
 
-    if (!g_cond_wait_until (&self->drain_cond, &self->drain_lock, wait_until))
-      GST_WARNING_OBJECT (self, "Drain timed out");
-    else
+      if (!g_cond_wait_until (&self->drain_cond, &self->drain_lock, wait_until))
+        GST_WARNING_OBJECT (self, "Drain timed out");
+      else
+        GST_DEBUG_OBJECT (self, "Drained component");
+
+    } else {
+      g_cond_wait (&self->drain_cond, &self->drain_lock);
       GST_DEBUG_OBJECT (self, "Drained component");
-
+    }
   } else {
-    g_cond_wait (&self->drain_cond, &self->drain_lock);
-    GST_DEBUG_OBJECT (self, "Drained component");
+    GST_DEBUG_OBJECT (self, "Flushing, no need to wait for drain");
   }
 
   g_mutex_unlock (&self->drain_lock);
