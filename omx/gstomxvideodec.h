@@ -90,6 +90,9 @@ struct _GstOMXVideoDec
   gboolean use_resizer;
   OMX_COLOR_FORMATTYPE resize_color;
   GstVideoFormat resize_format;
+  gint resize_width;
+  gint resize_height;
+  gint resizer_padding_bottom;
 #endif
 };
 
