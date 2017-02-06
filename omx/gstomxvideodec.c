@@ -2738,6 +2738,11 @@ component_error:
 flushing:
   {
     GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+    g_mutex_lock (&self->drain_lock);
+    self->flushing = TRUE;
+    g_cond_broadcast (&self->drain_cond);
+    g_mutex_unlock (&self->drain_lock);
+
     gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_FLUSHING;
     self->started = FALSE;
@@ -2791,6 +2796,11 @@ flow_error:
       self->started = FALSE;
     } else if (flow_ret == GST_FLOW_FLUSHING) {
       GST_DEBUG_OBJECT (self, "Flushing -- stopping task");
+      g_mutex_lock (&self->drain_lock);
+      self->flushing = TRUE;
+      g_cond_broadcast (&self->drain_cond);
+      g_mutex_unlock (&self->drain_lock);
+
       gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
       self->started = FALSE;
     }
