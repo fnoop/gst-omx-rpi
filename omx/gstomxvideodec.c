@@ -1107,6 +1107,12 @@ gst_omx_video_dec_change_state (GstElement * element, GstStateChange transition)
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
+      g_mutex_lock (&self->drain_lock);
+      self->flushing = TRUE;
+      g_cond_broadcast (&self->drain_cond);
+      g_mutex_unlock (&self->drain_lock);
+      self->downstream_flow_ret = GST_FLOW_FLUSHING;
+
       if (self->dec_in_port)
         gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, TRUE);
       if (self->dec_out_port)
@@ -1124,10 +1130,6 @@ gst_omx_video_dec_change_state (GstElement * element, GstStateChange transition)
         gst_omx_port_set_flushing (self->res_out_port, 5 * GST_SECOND, TRUE);
 #endif
 
-      g_mutex_lock (&self->drain_lock);
-      self->draining = FALSE;
-      g_cond_broadcast (&self->drain_cond);
-      g_mutex_unlock (&self->drain_lock);
       break;
     default:
       break;
@@ -2582,7 +2584,14 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
 
     if (acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE) {
       /* We have the possibility to reconfigure everything now */
+      g_mutex_lock (&self->drain_lock);
       err = gst_omx_video_dec_reconfigure_output_port (self);
+      if (self->flushing) {
+        g_mutex_unlock (&self->drain_lock);
+        goto flushing;
+      }
+
+      g_mutex_unlock (&self->drain_lock);
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
     } else {
