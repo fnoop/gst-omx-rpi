@@ -292,7 +292,8 @@ gst_omx_buffer_pool_free_buffer_foreach_func (gpointer data, gpointer user_data)
   GstBuffer *buffer = GST_BUFFER (data);
   GstBufferPool *pool = GST_BUFFER_POOL (user_data);
 
-  gst_omx_buffer_pool_free_buffer (pool, buffer);
+  GST_BUFFER_POOL_CLASS (gst_omx_buffer_pool_parent_class)->release_buffer
+      (pool, buffer);
 }
 
 static gboolean
@@ -1906,8 +1907,8 @@ do_resize_done:
 
 #if defined (USE_OMX_TARGET_RPI)
     bufsize =
-        self->use_resizer ? self->res_out_port->port_def.nBufferSize : self->
-        dec_out_port->port_def.nBufferSize;
+        self->use_resizer ? self->res_out_port->port_def.
+        nBufferSize : self->dec_out_port->port_def.nBufferSize;
 #else
     bufsize = self->dec_out_port->port_def.nBufferSize;
 #endif
@@ -4175,8 +4176,8 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
         gst_buffer_pool_config_add_option (config,
             GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT);
 
-        if (GST_ROUND_UP_16 (self->dec_out_port->port_def.format.
-                video.nFrameHeight) >
+        if (GST_ROUND_UP_16 (self->dec_out_port->port_def.format.video.
+                nFrameHeight) >
             self->dec_out_port->port_def.format.video.nFrameHeight) {
           /* minimun padding for resizer to work if it actually does scaling */
           gint min_diff = 8;
