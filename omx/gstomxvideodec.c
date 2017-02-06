@@ -1839,8 +1839,8 @@ do_resize_done:
 
 #if defined (USE_OMX_TARGET_RPI)
     bufsize =
-        self->use_resizer ? self->res_out_port->port_def.
-        nBufferSize : self->dec_out_port->port_def.nBufferSize;
+        self->use_resizer ? self->res_out_port->port_def.nBufferSize : self->
+        dec_out_port->port_def.nBufferSize;
 #else
     bufsize = self->dec_out_port->port_def.nBufferSize;
 #endif
@@ -3530,20 +3530,23 @@ gst_omx_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
 
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, FALSE);
-  gst_omx_port_populate (self->dec_out_port);
 
 #if defined (USE_OMX_TARGET_RPI)
 #if defined (HAVE_GST_EGL)
   if (self->eglimage) {
     gst_omx_port_set_flushing (self->egl_in_port, 5 * GST_SECOND, FALSE);
     gst_omx_port_set_flushing (self->egl_out_port, 5 * GST_SECOND, FALSE);
+    gst_omx_port_populate (self->egl_out_port);
   } else
 #endif
   if (self->use_resizer) {
-    gst_omx_port_set_flushing (self->res_in_port, 5 * GST_SECOND, TRUE);
-    gst_omx_port_set_flushing (self->res_out_port, 5 * GST_SECOND, TRUE);
-  }
+    gst_omx_port_set_flushing (self->res_in_port, 5 * GST_SECOND, FALSE);
+    gst_omx_port_set_flushing (self->res_out_port, 5 * GST_SECOND, FALSE);
+    gst_omx_port_populate (self->res_out_port);
+  } else
 #endif
+    /* else */
+    gst_omx_port_populate (self->dec_out_port);
 
   /* Start the srcpad loop again */
   self->last_upstream_ts = 0;
