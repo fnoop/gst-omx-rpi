@@ -1129,6 +1129,10 @@ gst_omx_video_dec_find_nearest_frame (GstOMXVideoDec * self, GstOMXBuffer * buf)
 
   frames = gst_video_decoder_get_frames (GST_VIDEO_DECODER (self));
 
+  if (!frames) {
+    GST_WARNING_OBJECT (self, "no frames");
+  }
+
   for (l = frames; l; l = l->next) {
     GstVideoCodecFrame *tmp = l->data;
     GstClockTimeDiff diff = ABS (GST_CLOCK_DIFF (timestamp, tmp->pts));
@@ -2506,7 +2510,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
     frame = NULL;
   } else if (!frame && (buf->omx_buf->nFilledLen > 0 || buf->eglimage)) {
-    GstBuffer *outbuf;
+    GstBuffer *outbuf = NULL;
 
     /* This sometimes happens at EOS or if the input is not properly framed,
      * let's handle it gracefully by allocating a new buffer for the current
@@ -2536,6 +2540,9 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         gst_omx_port_release_buffer (port, buf);
         goto invalid_buffer;
       }
+
+      /* release buf before to push it */
+      gst_omx_port_release_buffer (port, buf);
       buf = NULL;
     } else {
       outbuf =
@@ -2548,6 +2555,12 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     }
 
     flow_ret = gst_pad_push (GST_VIDEO_DECODER_SRC_PAD (self), outbuf);
+    if (flow_ret == GST_FLOW_FLUSHING && !gst_omx_port_is_flushing (port)) {
+      /* FIXME: I suspect a race pb but cannot find it
+       * so let's do a workaround for now */
+      GST_DEBUG_OBJECT (self, "src pad is still flushing");
+      flow_ret = GST_FLOW_OK;
+    }
   } else if (buf->omx_buf->nFilledLen > 0 || buf->eglimage) {
     if (self->out_port_pool) {
       gint i, n;
