@@ -2925,16 +2925,26 @@ gst_omx_video_dec_get_supported_image_colorformats (GstOMXVideoDec * self)
               param.eColorFormat, (guint) param.nIndex);
           break;
         case OMX_COLOR_Format32bitARGB8888:
+          /* RPI hack */
           m = g_slice_new (VideoNegotiationMap);
-          m->format = GST_VIDEO_FORMAT_ARGB;
+          m->format = GST_VIDEO_FORMAT_BGRx;
+          m->type = param.eColorFormat;
+          negotiation_map = g_list_append (negotiation_map, m);
+          m = g_slice_new (VideoNegotiationMap);
+          m->format = GST_VIDEO_FORMAT_BGRA;
           m->type = param.eColorFormat;
           negotiation_map = g_list_append (negotiation_map, m);
           GST_DEBUG_OBJECT (self, "Component supports ARGB (%d) at index %u",
               param.eColorFormat, (guint) param.nIndex);
           break;
         case OMX_COLOR_Format32bitABGR8888:
+          /* RPI hack */
           m = g_slice_new (VideoNegotiationMap);
-          m->format = GST_VIDEO_FORMAT_ABGR;
+          m->format = GST_VIDEO_FORMAT_RGBx;
+          m->type = param.eColorFormat;
+          negotiation_map = g_list_append (negotiation_map, m);
+          m = g_slice_new (VideoNegotiationMap);
+          m->format = GST_VIDEO_FORMAT_RGBA;
           m->type = param.eColorFormat;
           negotiation_map = g_list_append (negotiation_map, m);
           GST_DEBUG_OBJECT (self, "Component supports ABGR (%d) at index %u",
