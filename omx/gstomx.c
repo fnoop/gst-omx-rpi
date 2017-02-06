@@ -676,6 +676,7 @@ gst_omx_component_new (GstObject * parent, const gchar * core_name,
     err =
         gst_omx_component_set_parameter (comp,
         OMX_IndexParamStandardComponentRole, &param);
+    comp->last_error = err;
 
     GST_DEBUG_OBJECT (parent, "Setting component role to '%s': %s (0x%08x)",
         component_role, gst_omx_error_to_string (err), err);
@@ -779,6 +780,8 @@ gst_omx_component_set_state (GstOMXComponent * comp, OMX_STATETYPE state)
   }
 
   err = OMX_SendCommand (comp->handle, OMX_CommandStateSet, state, NULL);
+  comp->last_error = err;
+
   /* No need to check if anything has changed here */
 
 done:
