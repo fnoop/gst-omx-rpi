@@ -287,6 +287,7 @@ GKeyFile *        gst_omx_get_configuration (void);
 const gchar *     gst_omx_error_to_string (OMX_ERRORTYPE err);
 const gchar *     gst_omx_state_to_string (OMX_STATETYPE state);
 const gchar *     gst_omx_command_to_string (OMX_COMMANDTYPE cmd);
+const gchar *     gst_omx_indextype_to_string (OMX_INDEXTYPE index);
 
 guint64           gst_omx_parse_hacks (gchar ** hacks);
 

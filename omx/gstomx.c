@@ -42,10 +42,26 @@
 #include "gstomxaacenc.h"
 
 GST_DEBUG_CATEGORY (gstomx_debug);
+GST_DEBUG_CATEGORY (gstomxcalls_debug);
+GST_DEBUG_CATEGORY (gstomxcallbacks_debug);
 #define GST_CAT_DEFAULT gstomx_debug
 
 G_LOCK_DEFINE_STATIC (core_handles);
 static GHashTable *core_handles;
+
+static OMX_ERRORTYPE
+gst_omx_send_command (GstOMXComponent * comp, gint command, gint param,
+    gpointer data, const gchar * comment)
+{
+  OMX_ERRORTYPE err = OMX_SendCommand (comp->handle, command, param, NULL);
+
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp,
+      "OMX_SendCommand -- Sent %s with param: %d (%s), result: %s",
+      gst_omx_command_to_string (command), param, comment,
+      gst_omx_error_to_string (err));
+
+  return err;
+}
 
 GstOMXCore *
 gst_omx_core_acquire (const gchar * filename)
@@ -136,12 +152,14 @@ gst_omx_core_acquire (const gchar * filename)
 
     err = core->init ();
     if (err != OMX_ErrorNone) {
-      GST_ERROR ("Failed to initialize core '%s': 0x%08x", filename, err);
+      GST_CAT_ERROR (gstomxcalls_debug,
+          "OMX_Init -- Failed to initialize core '%s': 0x%08x", filename, err);
       g_mutex_unlock (&core->lock);
       goto error;
     }
 
-    GST_DEBUG ("Successfully initialized core '%s'", filename);
+    GST_CAT_DEBUG (gstomxcalls_debug,
+        "OMX_Init -- Successfully initialized core '%s'", filename);
   }
 
   g_mutex_unlock (&core->lock);
@@ -187,7 +205,7 @@ gst_omx_core_release (GstOMXCore * core)
 
   core->user_count--;
   if (core->user_count == 0) {
-    GST_DEBUG ("Deinit core %p", core);
+    GST_CAT_DEBUG (gstomxcalls_debug, "OMX_Deinit -- Deinit core %p", core);
     core->deinit ();
   }
 
@@ -418,7 +436,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
     {
       OMX_COMMANDTYPE cmd = (OMX_COMMANDTYPE) nData1;
 
-      GST_DEBUG_OBJECT (comp->parent, "%s %s command complete (%d)",
+      GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+          comp->parent, "%s %s command complete (%d)",
           comp->name, gst_omx_command_to_string (cmd), cmd);
 
       switch (cmd) {
@@ -428,7 +447,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
           msg->type = GST_OMX_MESSAGE_STATE_SET;
           msg->content.state_set.state = nData2;
 
-          GST_DEBUG_OBJECT (comp->parent, "%s state change to %s finished",
+          GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+              comp->parent, "%s state change to %s finished",
               comp->name,
               gst_omx_state_to_string (msg->content.state_set.state));
 
@@ -440,7 +460,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
 
           msg->type = GST_OMX_MESSAGE_FLUSH;
           msg->content.flush.port = nData2;
-          GST_DEBUG_OBJECT (comp->parent, "%s port %u flushed", comp->name,
+          GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+              comp->parent, "%s port %u flushed", comp->name,
               (guint) msg->content.flush.port);
 
           gst_omx_component_send_message (comp, msg);
@@ -453,7 +474,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
           msg->type = GST_OMX_MESSAGE_PORT_ENABLE;
           msg->content.port_enable.port = nData2;
           msg->content.port_enable.enable = (cmd == OMX_CommandPortEnable);
-          GST_DEBUG_OBJECT (comp->parent, "%s port %u %s", comp->name,
+          GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+              comp->parent, "%s port %u %s", comp->name,
               (guint) msg->content.port_enable.port,
               (msg->content.port_enable.enable ? "enabled" : "disabled"));
 
@@ -477,7 +499,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
 
       msg->type = GST_OMX_MESSAGE_ERROR;
       msg->content.error.error = nData1;
-      GST_ERROR_OBJECT (comp->parent, "%s got error: %s (0x%08x)", comp->name,
+      GST_CAT_ERROR_OBJECT (gstomxcallbacks_debug,
+          comp->parent, "%s got error: %s (0x%08x)", comp->name,
           gst_omx_error_to_string (msg->content.error.error),
           msg->content.error.error);
 
@@ -505,7 +528,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
 
       msg->type = GST_OMX_MESSAGE_PORT_SETTINGS_CHANGED;
       msg->content.port_settings_changed.port = index;
-      GST_DEBUG_OBJECT (comp->parent, "%s settings changed (port index: %u)",
+      GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+          comp->parent, "%s settings changed (port index: %u)",
           comp->name, (guint) msg->content.port_settings_changed.port);
 
       gst_omx_component_send_message (comp, msg);
@@ -519,7 +543,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
       msg->type = GST_OMX_MESSAGE_BUFFER_FLAG;
       msg->content.buffer_flag.port = nData1;
       msg->content.buffer_flag.flags = nData2;
-      GST_DEBUG_OBJECT (comp->parent, "%s port %u got buffer flags 0x%08x",
+      GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+          comp->parent, "%s port %u got buffer flags 0x%08x",
           comp->name, (guint) msg->content.buffer_flag.port,
           (guint) msg->content.buffer_flag.flags);
 
@@ -528,8 +553,8 @@ EventHandler (OMX_HANDLETYPE hComponent, OMX_PTR pAppData, OMX_EVENTTYPE eEvent,
     }
     case OMX_EventPortFormatDetected:
     default:
-      GST_DEBUG_OBJECT (comp->parent, "%s unknown event 0x%08x", comp->name,
-          eEvent);
+      GST_CAT_DEBUG_OBJECT (gstomxcallbacks_debug,
+          comp->parent, "%s unknown event 0x%08x", comp->name, eEvent);
       break;
   }
 
@@ -546,14 +571,15 @@ EmptyBufferDone (OMX_HANDLETYPE hComponent, OMX_PTR pAppData,
 
   buf = pBuffer->pAppPrivate;
   if (!buf) {
-    GST_ERROR ("Have unknown or deallocated buffer %p", pBuffer);
+    GST_CAT_ERROR (gstomxcallbacks_debug,
+        "Have unknown or deallocated buffer %p", pBuffer);
     return OMX_ErrorNone;
   }
 
   g_assert (buf->omx_buf == pBuffer);
 
   if (buf->port->tunneled) {
-    GST_ERROR ("EmptyBufferDone on tunneled port");
+    GST_CAT_ERROR (gstomxcallbacks_debug, "EmptyBufferDone on tunneled port");
     return OMX_ErrorBadParameter;
   }
 
@@ -566,7 +592,8 @@ EmptyBufferDone (OMX_HANDLETYPE hComponent, OMX_PTR pAppData,
   msg->content.buffer_done.buffer = pBuffer;
   msg->content.buffer_done.empty = OMX_TRUE;
 
-  GST_LOG_OBJECT (comp->parent, "%s port %u emptied buffer %p (%p)",
+  GST_CAT_LOG_OBJECT (gstomxcallbacks_debug,
+      comp->parent, "%s port %u emptied buffer %p (%p)",
       comp->name, buf->port->index, buf, buf->omx_buf->pBuffer);
 
   gst_omx_component_send_message (comp, msg);
@@ -584,14 +611,15 @@ FillBufferDone (OMX_HANDLETYPE hComponent, OMX_PTR pAppData,
 
   buf = pBuffer->pAppPrivate;
   if (!buf) {
-    GST_ERROR ("Have unknown or deallocated buffer %p", pBuffer);
+    GST_CAT_ERROR (gstomxcallbacks_debug,
+        "Have unknown or deallocated buffer %p", pBuffer);
     return OMX_ErrorNone;
   }
 
   g_assert (buf->omx_buf == pBuffer);
 
   if (buf->port->tunneled) {
-    GST_ERROR ("FillBufferDone on tunneled port");
+    GST_CAT_ERROR (gstomxcallbacks_debug, "FillBufferDone on tunneled port");
     return OMX_ErrorBadParameter;
   }
 
@@ -604,7 +632,8 @@ FillBufferDone (OMX_HANDLETYPE hComponent, OMX_PTR pAppData,
   msg->content.buffer_done.buffer = pBuffer;
   msg->content.buffer_done.empty = OMX_FALSE;
 
-  GST_LOG_OBJECT (comp->parent, "%s port %u filled buffer %p (%p)", comp->name,
+  GST_CAT_LOG_OBJECT (gstomxcallbacks_debug,
+      comp->parent, "%s port %u filled buffer %p (%p)", comp->name,
       buf->port->index, buf, buf->omx_buf->pBuffer);
 
   gst_omx_component_send_message (comp, msg);
@@ -641,16 +670,16 @@ gst_omx_component_new (GstObject * parent, const gchar * core_name,
       core->get_handle (&comp->handle, (OMX_STRING) component_name, comp,
       &callbacks);
   if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (parent,
-        "Failed to get component handle '%s' from core '%s': 0x%08x",
+    GST_CAT_ERROR_OBJECT (gstomxcalls_debug, parent,
+        "OMX_GetHandle -- Failed to get component handle '%s' from core '%s': 0x%08x",
         component_name, core_name, err);
     gst_omx_core_release (core);
     g_slice_free (GstOMXComponent, comp);
     return NULL;
   }
-  GST_DEBUG_OBJECT (parent,
-      "Successfully got component handle %p (%s) from core '%s'", comp->handle,
-      component_name, core_name);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, parent,
+      "OMX_GetHandle -- Successfully got component handle %p (%s) from core '%s'",
+      comp->handle, component_name, core_name);
   comp->parent = gst_object_ref (parent);
   comp->hacks = hacks;
 
@@ -723,6 +752,8 @@ gst_omx_component_free (GstOMXComponent * comp)
   }
 
   comp->core->free_handle (comp->handle);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp->parent,
+      "OMX_FreeHandle -- Freed handle %p (%s)", comp->handle, comp->name);
   gst_omx_core_release (comp->core);
 
   gst_omx_component_flush_messages (comp);
@@ -779,7 +810,8 @@ gst_omx_component_set_state (GstOMXComponent * comp, OMX_STATETYPE state)
     gst_omx_component_send_message (comp, NULL);
   }
 
-  err = OMX_SendCommand (comp->handle, OMX_CommandStateSet, state, NULL);
+  err = gst_omx_send_command (comp, OMX_CommandStateSet, state, NULL,
+      gst_omx_state_to_string (state));
   comp->last_error = err;
 
   /* No need to check if anything has changed here */
@@ -998,8 +1030,10 @@ gst_omx_component_get_parameter (GstOMXComponent * comp, OMX_INDEXTYPE index,
   GST_DEBUG_OBJECT (comp->parent, "Getting %s parameter at index 0x%08x",
       comp->name, index);
   err = OMX_GetParameter (comp->handle, index, param);
-  GST_DEBUG_OBJECT (comp->parent, "Got %s parameter at index 0x%08x: %s "
-      "(0x%08x)", comp->name, index, gst_omx_error_to_string (err), err);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp->parent,
+      "OMX_GetParameter -- Got %s parameter %s (index: 0x%08x): %s"
+      "(0x%08x)", comp->name, gst_omx_indextype_to_string (index),
+      index, gst_omx_error_to_string (err), err);
 
   return err;
 }
@@ -1017,8 +1051,10 @@ gst_omx_component_set_parameter (GstOMXComponent * comp, OMX_INDEXTYPE index,
   GST_DEBUG_OBJECT (comp->parent, "Setting %s parameter at index 0x%08x",
       comp->name, index);
   err = OMX_SetParameter (comp->handle, index, param);
-  GST_DEBUG_OBJECT (comp->parent, "Set %s parameter at index 0x%08x: %s "
-      "(0x%08x)", comp->name, index, gst_omx_error_to_string (err), err);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp->parent,
+      "OMX_SetParameter -- Set %s parameter %s (index 0x%08x): %s" "(0x%08x)",
+      comp->name, gst_omx_indextype_to_string (index), index,
+      gst_omx_error_to_string (err), err);
 
   return err;
 }
@@ -1036,8 +1072,10 @@ gst_omx_component_get_config (GstOMXComponent * comp, OMX_INDEXTYPE index,
   GST_DEBUG_OBJECT (comp->parent, "Getting %s configuration at index 0x%08x",
       comp->name, index);
   err = OMX_GetConfig (comp->handle, index, config);
-  GST_DEBUG_OBJECT (comp->parent, "Got %s parameter at index 0x%08x: %s "
-      "(0x%08x)", comp->name, index, gst_omx_error_to_string (err), err);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp->parent,
+      "OMX_SetParameter -- Got %s parameter %s (index 0x%08x): %s " "(0x%08x)",
+      comp->name, gst_omx_indextype_to_string (index), index,
+      gst_omx_error_to_string (err), err);
 
   return err;
 }
@@ -1055,8 +1093,10 @@ gst_omx_component_set_config (GstOMXComponent * comp, OMX_INDEXTYPE index,
   GST_DEBUG_OBJECT (comp->parent, "Setting %s configuration at index 0x%08x",
       comp->name, index);
   err = OMX_SetConfig (comp->handle, index, config);
-  GST_DEBUG_OBJECT (comp->parent, "Set %s parameter at index 0x%08x: %s "
-      "(0x%08x)", comp->name, index, gst_omx_error_to_string (err), err);
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp->parent,
+      "OMX_SetConfig -- Set %s parameter %s (index 0x%08x): %s " "(0x%08x)",
+      comp->name, gst_omx_indextype_to_string (index), index,
+      gst_omx_error_to_string (err), err);
 
   return err;
 }
@@ -1091,8 +1131,8 @@ gst_omx_component_setup_tunnel (GstOMXComponent * comp1, GstOMXPort * port1,
     port2->tunneled = TRUE;
   }
 
-  GST_DEBUG_OBJECT (comp1->parent,
-      "Setup tunnel between %s port %u and %s port %u: %s (0x%08x)",
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp1->parent,
+      "OMX_SetupTunnel -- Setup tunnel between %s port %u and %s port %u: %s (0x%08x)",
       comp1->name, port1->index,
       comp2->name, port2->index, gst_omx_error_to_string (err), err);
 
@@ -1127,22 +1167,22 @@ gst_omx_component_close_tunnel (GstOMXComponent * comp1, GstOMXPort * port1,
 
   err = comp1->core->setup_tunnel (comp1->handle, port1->index, 0, 0);
   if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (comp1->parent,
-        "Failed to close tunnel on output side %s (0x%08x)",
+    GST_CAT_ERROR_OBJECT (gstomxcalls_debug, comp1->parent,
+        "OMX_SetupTunnel -- Failed to close tunnel on output side %s (0x%08x)",
         gst_omx_error_to_string (err), err);
   }
   err = comp2->core->setup_tunnel (0, 0, comp2->handle, port2->index);
   if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (comp2->parent,
-        "Failed to close tunnel on input side %s (0x%08x)",
+    GST_CAT_ERROR_OBJECT (gstomxcalls_debug, comp2->parent,
+        "OMX_SetupTunnel -- Failed to close tunnel on input side %s (0x%08x)",
         gst_omx_error_to_string (err), err);
   }
 
   port1->tunneled = FALSE;
   port2->tunneled = FALSE;
 
-  GST_DEBUG_OBJECT (comp1->parent,
-      "Closed tunnel between %s port %u and %s port %u",
+  GST_CAT_DEBUG_OBJECT (gstomxcalls_debug, comp1->parent,
+      "OMX_SetupTunnel -- Closed tunnel between %s port %u and %s port %u",
       comp1->name, port1->index, comp2->name, port2->index);
 
   g_mutex_unlock (&comp2->lock);
@@ -1462,7 +1502,9 @@ gst_omx_port_set_flushing (GstOMXPort * port, GstClockTime timeout,
     /* Now flush the port */
     port->flushed = FALSE;
 
-    err = OMX_SendCommand (comp->handle, OMX_CommandFlush, port->index, NULL);
+    err =
+        gst_omx_send_command (comp, OMX_CommandFlush, port->index, NULL,
+        "flushing port");
 
     if (err != OMX_ErrorNone) {
       GST_ERROR_OBJECT (comp->parent,
@@ -1884,13 +1926,11 @@ gst_omx_port_set_enabled_unlocked (GstOMXPort * port, gboolean enabled)
   }
 
   if (enabled)
-    err =
-        OMX_SendCommand (comp->handle, OMX_CommandPortEnable, port->index,
-        NULL);
+    err = gst_omx_send_command (comp, OMX_CommandPortEnable, port->index, NULL,
+        "enable port");
   else
-    err =
-        OMX_SendCommand (comp->handle, OMX_CommandPortDisable,
-        port->index, NULL);
+    err = gst_omx_send_command (comp, OMX_CommandPortDisable, port->index, NULL,
+        "disable port");
 
   if (err != OMX_ErrorNone) {
     GST_ERROR_OBJECT (comp->parent,
@@ -2522,6 +2562,822 @@ gst_omx_command_to_string (OMX_COMMANDTYPE cmd)
   return "Unknown command";
 }
 
+const gchar *
+gst_omx_indextype_to_string (OMX_INDEXTYPE index)
+{
+
+  switch (index) {
+    case OMX_IndexComponentStartUnused:
+      return "OMX_IndexComponentStartUnused";
+    case OMX_IndexParamPriorityMgmt:
+      return "OMX_IndexParamPriorityMgmt";
+    case OMX_IndexParamAudioInit:
+      return "OMX_IndexParamAudioInit";
+    case OMX_IndexParamImageInit:
+      return "OMX_IndexParamImageInit";
+    case OMX_IndexParamVideoInit:
+      return "OMX_IndexParamVideoInit";
+    case OMX_IndexParamOtherInit:
+      return "OMX_IndexParamOtherInit";
+    case OMX_IndexParamNumAvailableStreams:
+      return "OMX_IndexParamNumAvailableStreams";
+    case OMX_IndexParamActiveStream:
+      return "OMX_IndexParamActiveStream";
+    case OMX_IndexParamSuspensionPolicy:
+      return "OMX_IndexParamSuspensionPolicy";
+    case OMX_IndexParamComponentSuspended:
+      return "OMX_IndexParamComponentSuspended";
+    case OMX_IndexConfigCapturing:
+      return "OMX_IndexConfigCapturing";
+    case OMX_IndexConfigCaptureMode:
+      return "OMX_IndexConfigCaptureMode";
+    case OMX_IndexAutoPauseAfterCapture:
+      return "OMX_IndexAutoPauseAfterCapture";
+    case OMX_IndexParamContentURI:
+      return "OMX_IndexParamContentURI";
+    case OMX_IndexParamCustomContentPipe:
+      return "OMX_IndexParamCustomContentPipe";
+    case OMX_IndexParamDisableResourceConcealment:
+      return "OMX_IndexParamDisableResourceConcealment";
+    case OMX_IndexConfigMetadataItemCount:
+      return "OMX_IndexConfigMetadataItemCount";
+    case OMX_IndexConfigContainerNodeCount:
+      return "OMX_IndexConfigContainerNodeCount";
+    case OMX_IndexConfigMetadataItem:
+      return "OMX_IndexConfigMetadataItem";
+    case OMX_IndexConfigCounterNodeID:
+      return "OMX_IndexConfigCounterNodeID";
+    case OMX_IndexParamMetadataFilterType:
+      return "OMX_IndexParamMetadataFilterType";
+    case OMX_IndexParamMetadataKeyFilter:
+      return "OMX_IndexParamMetadataKeyFilter";
+    case OMX_IndexConfigPriorityMgmt:
+      return "OMX_IndexConfigPriorityMgmt";
+    case OMX_IndexParamStandardComponentRole:
+      return "OMX_IndexParamStandardComponentRole";
+    case OMX_IndexPortStartUnused:
+      return "OMX_IndexPortStartUnused";
+    case OMX_IndexParamPortDefinition:
+      return "OMX_IndexParamPortDefinition";
+    case OMX_IndexParamCompBufferSupplier:
+      return "OMX_IndexParamCompBufferSupplier";
+    case OMX_IndexReservedStartUnused:
+      return "OMX_IndexReservedStartUnused";
+    case OMX_IndexAudioStartUnused:
+      return "OMX_IndexAudioStartUnused";
+    case OMX_IndexParamAudioPortFormat:
+      return "OMX_IndexParamAudioPortFormat";
+    case OMX_IndexParamAudioPcm:
+      return "OMX_IndexParamAudioPcm";
+    case OMX_IndexParamAudioAac:
+      return "OMX_IndexParamAudioAac";
+    case OMX_IndexParamAudioRa:
+      return "OMX_IndexParamAudioRa";
+    case OMX_IndexParamAudioMp3:
+      return "OMX_IndexParamAudioMp3";
+    case OMX_IndexParamAudioAdpcm:
+      return "OMX_IndexParamAudioAdpcm";
+    case OMX_IndexParamAudioG723:
+      return "OMX_IndexParamAudioG723";
+    case OMX_IndexParamAudioG729:
+      return "OMX_IndexParamAudioG729";
+    case OMX_IndexParamAudioAmr:
+      return "OMX_IndexParamAudioAmr";
+    case OMX_IndexParamAudioWma:
+      return "OMX_IndexParamAudioWma";
+    case OMX_IndexParamAudioSbc:
+      return "OMX_IndexParamAudioSbc";
+    case OMX_IndexParamAudioMidi:
+      return "OMX_IndexParamAudioMidi";
+    case OMX_IndexParamAudioGsm_FR:
+      return "OMX_IndexParamAudioGsm_FR";
+    case OMX_IndexParamAudioMidiLoadUserSound:
+      return "OMX_IndexParamAudioMidiLoadUserSound";
+    case OMX_IndexParamAudioG726:
+      return "OMX_IndexParamAudioG726";
+    case OMX_IndexParamAudioGsm_EFR:
+      return "OMX_IndexParamAudioGsm_EFR";
+    case OMX_IndexParamAudioGsm_HR:
+      return "OMX_IndexParamAudioGsm_HR";
+    case OMX_IndexParamAudioPdc_FR:
+      return "OMX_IndexParamAudioPdc_FR";
+    case OMX_IndexParamAudioPdc_EFR:
+      return "OMX_IndexParamAudioPdc_EFR";
+    case OMX_IndexParamAudioPdc_HR:
+      return "OMX_IndexParamAudioPdc_HR";
+    case OMX_IndexParamAudioTdma_FR:
+      return "OMX_IndexParamAudioTdma_FR";
+    case OMX_IndexParamAudioTdma_EFR:
+      return "OMX_IndexParamAudioTdma_EFR";
+    case OMX_IndexParamAudioQcelp8:
+      return "OMX_IndexParamAudioQcelp8";
+    case OMX_IndexParamAudioQcelp13:
+      return "OMX_IndexParamAudioQcelp13";
+    case OMX_IndexParamAudioEvrc:
+      return "OMX_IndexParamAudioEvrc";
+    case OMX_IndexParamAudioSmv:
+      return "OMX_IndexParamAudioSmv";
+    case OMX_IndexParamAudioVorbis:
+      return "OMX_IndexParamAudioVorbis";
+    case OMX_IndexConfigAudioMidiImmediateEvent:
+      return "OMX_IndexConfigAudioMidiImmediateEvent";
+    case OMX_IndexConfigAudioMidiControl:
+      return "OMX_IndexConfigAudioMidiControl";
+    case OMX_IndexConfigAudioMidiSoundBankProgram:
+      return "OMX_IndexConfigAudioMidiSoundBankProgram";
+    case OMX_IndexConfigAudioMidiStatus:
+      return "OMX_IndexConfigAudioMidiStatus";
+    case OMX_IndexConfigAudioMidiMetaEvent:
+      return "OMX_IndexConfigAudioMidiMetaEvent";
+    case OMX_IndexConfigAudioMidiMetaEventData:
+      return "OMX_IndexConfigAudioMidiMetaEventData";
+    case OMX_IndexConfigAudioVolume:
+      return "OMX_IndexConfigAudioVolume";
+    case OMX_IndexConfigAudioBalance:
+      return "OMX_IndexConfigAudioBalance";
+    case OMX_IndexConfigAudioChannelMute:
+      return "OMX_IndexConfigAudioChannelMute";
+    case OMX_IndexConfigAudioMute:
+      return "OMX_IndexConfigAudioMute";
+    case OMX_IndexConfigAudioLoudness:
+      return "OMX_IndexConfigAudioLoudness";
+    case OMX_IndexConfigAudioEchoCancelation:
+      return "OMX_IndexConfigAudioEchoCancelation";
+    case OMX_IndexConfigAudioNoiseReduction:
+      return "OMX_IndexConfigAudioNoiseReduction";
+    case OMX_IndexConfigAudioBass:
+      return "OMX_IndexConfigAudioBass";
+    case OMX_IndexConfigAudioTreble:
+      return "OMX_IndexConfigAudioTreble";
+    case OMX_IndexConfigAudioStereoWidening:
+      return "OMX_IndexConfigAudioStereoWidening";
+    case OMX_IndexConfigAudioChorus:
+      return "OMX_IndexConfigAudioChorus";
+    case OMX_IndexConfigAudioEqualizer:
+      return "OMX_IndexConfigAudioEqualizer";
+    case OMX_IndexConfigAudioReverberation:
+      return "OMX_IndexConfigAudioReverberation";
+    case OMX_IndexConfigAudioChannelVolume:
+      return "OMX_IndexConfigAudioChannelVolume";
+    case OMX_IndexImageStartUnused:
+      return "OMX_IndexImageStartUnused";
+    case OMX_IndexParamImagePortFormat:
+      return "OMX_IndexParamImagePortFormat";
+    case OMX_IndexParamFlashControl:
+      return "OMX_IndexParamFlashControl";
+    case OMX_IndexConfigFocusControl:
+      return "OMX_IndexConfigFocusControl";
+    case OMX_IndexParamQFactor:
+      return "OMX_IndexParamQFactor";
+    case OMX_IndexParamQuantizationTable:
+      return "OMX_IndexParamQuantizationTable";
+    case OMX_IndexParamHuffmanTable:
+      return "OMX_IndexParamHuffmanTable";
+    case OMX_IndexConfigFlashControl:
+      return "OMX_IndexConfigFlashControl";
+    case OMX_IndexVideoStartUnused:
+      return "OMX_IndexVideoStartUnused";
+    case OMX_IndexParamVideoPortFormat:
+      return "OMX_IndexParamVideoPortFormat";
+    case OMX_IndexParamVideoQuantization:
+      return "OMX_IndexParamVideoQuantization";
+    case OMX_IndexParamVideoFastUpdate:
+      return "OMX_IndexParamVideoFastUpdate";
+    case OMX_IndexParamVideoBitrate:
+      return "OMX_IndexParamVideoBitrate";
+    case OMX_IndexParamVideoMotionVector:
+      return "OMX_IndexParamVideoMotionVector";
+    case OMX_IndexParamVideoIntraRefresh:
+      return "OMX_IndexParamVideoIntraRefresh";
+    case OMX_IndexParamVideoErrorCorrection:
+      return "OMX_IndexParamVideoErrorCorrection";
+    case OMX_IndexParamVideoVBSMC:
+      return "OMX_IndexParamVideoVBSMC";
+    case OMX_IndexParamVideoMpeg2:
+      return "OMX_IndexParamVideoMpeg2";
+    case OMX_IndexParamVideoMpeg4:
+      return "OMX_IndexParamVideoMpeg4";
+    case OMX_IndexParamVideoWmv:
+      return "OMX_IndexParamVideoWmv";
+    case OMX_IndexParamVideoRv:
+      return "OMX_IndexParamVideoRv";
+    case OMX_IndexParamVideoAvc:
+      return "OMX_IndexParamVideoAvc";
+    case OMX_IndexParamVideoH263:
+      return "OMX_IndexParamVideoH263";
+    case OMX_IndexParamVideoProfileLevelQuerySupported:
+      return "OMX_IndexParamVideoProfileLevelQuerySupported";
+    case OMX_IndexParamVideoProfileLevelCurrent:
+      return "OMX_IndexParamVideoProfileLevelCurrent";
+    case OMX_IndexConfigVideoBitrate:
+      return "OMX_IndexConfigVideoBitrate";
+    case OMX_IndexConfigVideoFramerate:
+      return "OMX_IndexConfigVideoFramerate";
+    case OMX_IndexConfigVideoIntraVOPRefresh:
+      return "OMX_IndexConfigVideoIntraVOPRefresh";
+    case OMX_IndexConfigVideoIntraMBRefresh:
+      return "OMX_IndexConfigVideoIntraMBRefresh";
+    case OMX_IndexConfigVideoMBErrorReporting:
+      return "OMX_IndexConfigVideoMBErrorReporting";
+    case OMX_IndexParamVideoMacroblocksPerFrame:
+      return "OMX_IndexParamVideoMacroblocksPerFrame";
+    case OMX_IndexConfigVideoMacroBlockErrorMap:
+      return "OMX_IndexConfigVideoMacroBlockErrorMap";
+    case OMX_IndexParamVideoSliceFMO:
+      return "OMX_IndexParamVideoSliceFMO";
+    case OMX_IndexConfigVideoAVCIntraPeriod:
+      return "OMX_IndexConfigVideoAVCIntraPeriod";
+    case OMX_IndexConfigVideoNalSize:
+      return "OMX_IndexConfigVideoNalSize";
+    case OMX_IndexCommonStartUnused:
+      return "OMX_IndexCommonStartUnused";
+    case OMX_IndexParamCommonDeblocking:
+      return "OMX_IndexParamCommonDeblocking";
+    case OMX_IndexParamCommonSensorMode:
+      return "OMX_IndexParamCommonSensorMode";
+    case OMX_IndexParamCommonInterleave:
+      return "OMX_IndexParamCommonInterleave";
+    case OMX_IndexConfigCommonColorFormatConversion:
+      return "OMX_IndexConfigCommonColorFormatConversion";
+    case OMX_IndexConfigCommonScale:
+      return "OMX_IndexConfigCommonScale";
+    case OMX_IndexConfigCommonImageFilter:
+      return "OMX_IndexConfigCommonImageFilter";
+    case OMX_IndexConfigCommonColorEnhancement:
+      return "OMX_IndexConfigCommonColorEnhancement";
+    case OMX_IndexConfigCommonColorKey:
+      return "OMX_IndexConfigCommonColorKey";
+    case OMX_IndexConfigCommonColorBlend:
+      return "OMX_IndexConfigCommonColorBlend";
+    case OMX_IndexConfigCommonFrameStabilisation:
+      return "OMX_IndexConfigCommonFrameStabilisation";
+    case OMX_IndexConfigCommonRotate:
+      return "OMX_IndexConfigCommonRotate";
+    case OMX_IndexConfigCommonMirror:
+      return "OMX_IndexConfigCommonMirror";
+    case OMX_IndexConfigCommonOutputPosition:
+      return "OMX_IndexConfigCommonOutputPosition";
+    case OMX_IndexConfigCommonInputCrop:
+      return "OMX_IndexConfigCommonInputCrop";
+    case OMX_IndexConfigCommonOutputCrop:
+      return "OMX_IndexConfigCommonOutputCrop";
+    case OMX_IndexConfigCommonDigitalZoom:
+      return "OMX_IndexConfigCommonDigitalZoom";
+    case OMX_IndexConfigCommonOpticalZoom:
+      return "OMX_IndexConfigCommonOpticalZoom";
+    case OMX_IndexConfigCommonWhiteBalance:
+      return "OMX_IndexConfigCommonWhiteBalance";
+    case OMX_IndexConfigCommonExposure:
+      return "OMX_IndexConfigCommonExposure";
+    case OMX_IndexConfigCommonContrast:
+      return "OMX_IndexConfigCommonContrast";
+    case OMX_IndexConfigCommonBrightness:
+      return "OMX_IndexConfigCommonBrightness";
+    case OMX_IndexConfigCommonBacklight:
+      return "OMX_IndexConfigCommonBacklight";
+    case OMX_IndexConfigCommonGamma:
+      return "OMX_IndexConfigCommonGamma";
+    case OMX_IndexConfigCommonSaturation:
+      return "OMX_IndexConfigCommonSaturation";
+    case OMX_IndexConfigCommonLightness:
+      return "OMX_IndexConfigCommonLightness";
+    case OMX_IndexConfigCommonExclusionRect:
+      return "OMX_IndexConfigCommonExclusionRect";
+    case OMX_IndexConfigCommonDithering:
+      return "OMX_IndexConfigCommonDithering";
+    case OMX_IndexConfigCommonPlaneBlend:
+      return "OMX_IndexConfigCommonPlaneBlend";
+    case OMX_IndexConfigCommonExposureValue:
+      return "OMX_IndexConfigCommonExposureValue";
+    case OMX_IndexConfigCommonOutputSize:
+      return "OMX_IndexConfigCommonOutputSize";
+    case OMX_IndexParamCommonExtraQuantData:
+      return "OMX_IndexParamCommonExtraQuantData";
+    case OMX_IndexConfigCommonFocusRegion:
+      return "OMX_IndexConfigCommonFocusRegion";
+    case OMX_IndexConfigCommonFocusStatus:
+      return "OMX_IndexConfigCommonFocusStatus";
+    case OMX_IndexConfigCommonTransitionEffect:
+      return "OMX_IndexConfigCommonTransitionEffect";
+    case OMX_IndexOtherStartUnused:
+      return "OMX_IndexOtherStartUnused";
+    case OMX_IndexParamOtherPortFormat:
+      return "OMX_IndexParamOtherPortFormat";
+    case OMX_IndexConfigOtherPower:
+      return "OMX_IndexConfigOtherPower";
+    case OMX_IndexConfigOtherStats:
+      return "OMX_IndexConfigOtherStats";
+    case OMX_IndexTimeStartUnused:
+      return "OMX_IndexTimeStartUnused";
+    case OMX_IndexConfigTimeScale:
+      return "OMX_IndexConfigTimeScale";
+    case OMX_IndexConfigTimeClockState:
+      return "OMX_IndexConfigTimeClockState";
+    case OMX_IndexConfigTimeActiveRefClock:
+      return "OMX_IndexConfigTimeActiveRefClock";
+    case OMX_IndexConfigTimeCurrentMediaTime:
+      return "OMX_IndexConfigTimeCurrentMediaTime";
+    case OMX_IndexConfigTimeCurrentWallTime:
+      return "OMX_IndexConfigTimeCurrentWallTime";
+    case OMX_IndexConfigTimeCurrentAudioReference:
+      return "OMX_IndexConfigTimeCurrentAudioReference";
+    case OMX_IndexConfigTimeCurrentVideoReference:
+      return "OMX_IndexConfigTimeCurrentVideoReference";
+    case OMX_IndexConfigTimeMediaTimeRequest:
+      return "OMX_IndexConfigTimeMediaTimeRequest";
+    case OMX_IndexConfigTimeClientStartTime:
+      return "OMX_IndexConfigTimeClientStartTime";
+    case OMX_IndexConfigTimePosition:
+      return "OMX_IndexConfigTimePosition";
+    case OMX_IndexConfigTimeSeekMode:
+      return "OMX_IndexConfigTimeSeekMode";
+    case OMX_IndexKhronosExtensions:
+      return "OMX_IndexKhronosExtensions";
+    case OMX_IndexVendorStartUnused:
+      return "OMX_IndexVendorStartUnused";
+    case OMX_IndexParamMarkComparison:
+      return "OMX_IndexParamMarkComparison";
+    case OMX_IndexParamPortSummary:
+      return "OMX_IndexParamPortSummary";
+    case OMX_IndexParamTunnelStatus:
+      return "OMX_IndexParamTunnelStatus";
+    case OMX_IndexParamBrcmRecursionUnsafe:
+      return "OMX_IndexParamBrcmRecursionUnsafe";
+    case OMX_IndexParamBufferAddress:
+      return "OMX_IndexParamBufferAddress";
+    case OMX_IndexParamTunnelSetup:
+      return "OMX_IndexParamTunnelSetup";
+    case OMX_IndexParamBrcmPortEGL:
+      return "OMX_IndexParamBrcmPortEGL";
+    case OMX_IndexParamIdleResourceCount:
+      return "OMX_IndexParamIdleResourceCount";
+    case OMX_IndexParamImagePoolDisplayFunction:
+      return "OMX_IndexParamImagePoolDisplayFunction";
+    case OMX_IndexParamBrcmDataUnit:
+      return "OMX_IndexParamBrcmDataUnit";
+    case OMX_IndexParamCodecConfig:
+      return "OMX_IndexParamCodecConfig";
+    case OMX_IndexParamCameraPoolToEncoderFunction:
+      return "OMX_IndexParamCameraPoolToEncoderFunction";
+    case OMX_IndexParamCameraStripeFunction:
+      return "OMX_IndexParamCameraStripeFunction";
+    case OMX_IndexParamCameraCaptureEventFunction:
+      return "OMX_IndexParamCameraCaptureEventFunction";
+    case OMX_IndexParamTestInterface:
+      return "OMX_IndexParamTestInterface";
+    case OMX_IndexConfigDisplayRegion:
+      return "OMX_IndexConfigDisplayRegion";
+    case OMX_IndexParamSource:
+      return "OMX_IndexParamSource";
+    case OMX_IndexParamSourceSeed:
+      return "OMX_IndexParamSourceSeed";
+    case OMX_IndexParamResize:
+      return "OMX_IndexParamResize";
+    case OMX_IndexConfigVisualisation:
+      return "OMX_IndexConfigVisualisation";
+    case OMX_IndexConfigSingleStep:
+      return "OMX_IndexConfigSingleStep";
+    case OMX_IndexConfigPlayMode:
+      return "OMX_IndexConfigPlayMode";
+    case OMX_IndexParamCameraCamplusId:
+      return "OMX_IndexParamCameraCamplusId";
+    case OMX_IndexConfigCommonImageFilterParameters:
+      return "OMX_IndexConfigCommonImageFilterParameters";
+    case OMX_IndexConfigTransitionControl:
+      return "OMX_IndexConfigTransitionControl";
+    case OMX_IndexConfigPresentationOffset:
+      return "OMX_IndexConfigPresentationOffset";
+    case OMX_IndexParamSourceFunctions:
+      return "OMX_IndexParamSourceFunctions";
+    case OMX_IndexConfigAudioMonoTrackControl:
+      return "OMX_IndexConfigAudioMonoTrackControl";
+    case OMX_IndexParamCameraImagePool:
+      return "OMX_IndexParamCameraImagePool";
+    case OMX_IndexConfigCameraISPOutputPoolHeight:
+      return "OMX_IndexConfigCameraISPOutputPoolHeight";
+    case OMX_IndexParamImagePoolSize:
+      return "OMX_IndexParamImagePoolSize";
+    case OMX_IndexParamImagePoolExternal:
+      return "OMX_IndexParamImagePoolExternal";
+    case OMX_IndexParamRUTILFifoInfo:
+      return "OMX_IndexParamRUTILFifoInfo";
+    case OMX_IndexParamILFifoConfig:
+      return "OMX_IndexParamILFifoConfig";
+    case OMX_IndexConfigCameraSensorModes:
+      return "OMX_IndexConfigCameraSensorModes";
+    case OMX_IndexConfigBrcmPortStats:
+      return "OMX_IndexConfigBrcmPortStats";
+    case OMX_IndexConfigBrcmPortBufferStats:
+      return "OMX_IndexConfigBrcmPortBufferStats";
+    case OMX_IndexConfigBrcmCameraStats:
+      return "OMX_IndexConfigBrcmCameraStats";
+    case OMX_IndexConfigBrcmIOPerfStats:
+      return "OMX_IndexConfigBrcmIOPerfStats";
+    case OMX_IndexConfigCommonSharpness:
+      return "OMX_IndexConfigCommonSharpness";
+    case OMX_IndexConfigCommonFlickerCancellation:
+      return "OMX_IndexConfigCommonFlickerCancellation";
+    case OMX_IndexParamCameraSwapImagePools:
+      return "OMX_IndexParamCameraSwapImagePools";
+    case OMX_IndexParamCameraSingleBufferCaptureInput:
+      return "OMX_IndexParamCameraSingleBufferCaptureInput";
+    case OMX_IndexConfigCommonRedEyeRemoval:
+      return "OMX_IndexConfigCommonRedEyeRemoval";
+    case OMX_IndexConfigCommonFaceDetectionControl:
+      return "OMX_IndexConfigCommonFaceDetectionControl";
+    case OMX_IndexConfigCommonFaceDetectionRegion:
+      return "OMX_IndexConfigCommonFaceDetectionRegion";
+    case OMX_IndexConfigCommonInterlace:
+      return "OMX_IndexConfigCommonInterlace";
+    case OMX_IndexParamISPTunerName:
+      return "OMX_IndexParamISPTunerName";
+    case OMX_IndexParamCameraDeviceNumber:
+      return "OMX_IndexParamCameraDeviceNumber";
+    case OMX_IndexParamCameraDevicesPresent:
+      return "OMX_IndexParamCameraDevicesPresent";
+    case OMX_IndexConfigCameraInputFrame:
+      return "OMX_IndexConfigCameraInputFrame";
+    case OMX_IndexConfigStillColourDenoiseEnable:
+      return "OMX_IndexConfigStillColourDenoiseEnable";
+    case OMX_IndexConfigVideoColourDenoiseEnable:
+      return "OMX_IndexConfigVideoColourDenoiseEnable";
+    case OMX_IndexConfigAFAssistLight:
+      return "OMX_IndexConfigAFAssistLight";
+    case OMX_IndexConfigSmartShakeReductionEnable:
+      return "OMX_IndexConfigSmartShakeReductionEnable";
+    case OMX_IndexConfigInputCropPercentages:
+      return "OMX_IndexConfigInputCropPercentages";
+    case OMX_IndexConfigStillsAntiShakeEnable:
+      return "OMX_IndexConfigStillsAntiShakeEnable";
+    case OMX_IndexConfigWaitForFocusBeforeCapture:
+      return "OMX_IndexConfigWaitForFocusBeforeCapture";
+    case OMX_IndexConfigAudioRenderingLatency:
+      return "OMX_IndexConfigAudioRenderingLatency";
+    case OMX_IndexConfigDrawBoxAroundFaces:
+      return "OMX_IndexConfigDrawBoxAroundFaces";
+    case OMX_IndexParamCodecRequirements:
+      return "OMX_IndexParamCodecRequirements";
+    case OMX_IndexConfigBrcmEGLImageMemHandle:
+      return "OMX_IndexConfigBrcmEGLImageMemHandle";
+    case OMX_IndexConfigPrivacyIndicator:
+      return "OMX_IndexConfigPrivacyIndicator";
+    case OMX_IndexParamCameraFlashType:
+      return "OMX_IndexParamCameraFlashType";
+    case OMX_IndexConfigCameraEnableStatsPass:
+      return "OMX_IndexConfigCameraEnableStatsPass";
+    case OMX_IndexConfigCameraFlashConfig:
+      return "OMX_IndexConfigCameraFlashConfig";
+    case OMX_IndexConfigCaptureRawImageURI:
+      return "OMX_IndexConfigCaptureRawImageURI";
+    case OMX_IndexConfigCameraStripeFuncMinLines:
+      return "OMX_IndexConfigCameraStripeFuncMinLines";
+    case OMX_IndexConfigCameraAlgorithmVersionDeprecated:
+      return "OMX_IndexConfigCameraAlgorithmVersionDeprecated";
+    case OMX_IndexConfigCameraIsoReferenceValue:
+      return "OMX_IndexConfigCameraIsoReferenceValue";
+    case OMX_IndexConfigCameraCaptureAbortsAutoFocus:
+      return "OMX_IndexConfigCameraCaptureAbortsAutoFocus";
+    case OMX_IndexConfigBrcmClockMissCount:
+      return "OMX_IndexConfigBrcmClockMissCount";
+    case OMX_IndexConfigFlashChargeLevel:
+      return "OMX_IndexConfigFlashChargeLevel";
+    case OMX_IndexConfigBrcmVideoEncodedSliceSize:
+      return "OMX_IndexConfigBrcmVideoEncodedSliceSize";
+    case OMX_IndexConfigBrcmAudioTrackGaplessPlayback:
+      return "OMX_IndexConfigBrcmAudioTrackGaplessPlayback";
+    case OMX_IndexConfigBrcmAudioTrackChangeControl:
+      return "OMX_IndexConfigBrcmAudioTrackChangeControl";
+    case OMX_IndexParamBrcmPixelAspectRatio:
+      return "OMX_IndexParamBrcmPixelAspectRatio";
+    case OMX_IndexParamBrcmPixelValueRange:
+      return "OMX_IndexParamBrcmPixelValueRange";
+    case OMX_IndexParamCameraDisableAlgorithm:
+      return "OMX_IndexParamCameraDisableAlgorithm";
+    case OMX_IndexConfigBrcmVideoIntraPeriodTime:
+      return "OMX_IndexConfigBrcmVideoIntraPeriodTime";
+    case OMX_IndexConfigBrcmVideoIntraPeriod:
+      return "OMX_IndexConfigBrcmVideoIntraPeriod";
+    case OMX_IndexConfigBrcmAudioEffectControl:
+      return "OMX_IndexConfigBrcmAudioEffectControl";
+    case OMX_IndexConfigBrcmMinimumProcessingLatency:
+      return "OMX_IndexConfigBrcmMinimumProcessingLatency";
+    case OMX_IndexParamBrcmVideoAVCSEIEnable:
+      return "OMX_IndexParamBrcmVideoAVCSEIEnable";
+    case OMX_IndexParamBrcmAllowMemChange:
+      return "OMX_IndexParamBrcmAllowMemChange";
+    case OMX_IndexConfigBrcmVideoEncoderMBRowsPerSlice:
+      return "OMX_IndexConfigBrcmVideoEncoderMBRowsPerSlice";
+    case OMX_IndexParamCameraAFAssistDeviceNumber_Deprecated:
+      return "OMX_IndexParamCameraAFAssistDeviceNumber_Deprecated";
+    case OMX_IndexParamCameraPrivacyIndicatorDeviceNumber_Deprecated:
+      return "OMX_IndexParamCameraPrivacyIndicatorDeviceNumber_Deprecated";
+    case OMX_IndexConfigCameraUseCase:
+      return "OMX_IndexConfigCameraUseCase";
+    case OMX_IndexParamBrcmDisableProprietaryTunnels:
+      return "OMX_IndexParamBrcmDisableProprietaryTunnels";
+    case OMX_IndexParamBrcmOutputBufferSize:
+      return "OMX_IndexParamBrcmOutputBufferSize";
+    case OMX_IndexParamBrcmRetainMemory:
+      return "OMX_IndexParamBrcmRetainMemory";
+    case OMX_IndexConfigCanFocus_Deprecated:
+      return "OMX_IndexConfigCanFocus_Deprecated";
+    case OMX_IndexParamBrcmImmutableInput:
+      return "OMX_IndexParamBrcmImmutableInput";
+    case OMX_IndexParamDynamicParameterFile:
+      return "OMX_IndexParamDynamicParameterFile";
+    case OMX_IndexParamUseDynamicParameterFile:
+      return "OMX_IndexParamUseDynamicParameterFile";
+    case OMX_IndexConfigCameraInfo:
+      return "OMX_IndexConfigCameraInfo";
+    case OMX_IndexConfigCameraFeatures:
+      return "OMX_IndexConfigCameraFeatures";
+    case OMX_IndexConfigRequestCallback:
+      return "OMX_IndexConfigRequestCallback";
+    case OMX_IndexConfigBrcmOutputBufferFullCount:
+      return "OMX_IndexConfigBrcmOutputBufferFullCount";
+    case OMX_IndexConfigCommonFocusRegionXY:
+      return "OMX_IndexConfigCommonFocusRegionXY";
+    case OMX_IndexParamBrcmDisableEXIF:
+      return "OMX_IndexParamBrcmDisableEXIF";
+    case OMX_IndexConfigUserSettingsId:
+      return "OMX_IndexConfigUserSettingsId";
+    case OMX_IndexConfigCameraSettings:
+      return "OMX_IndexConfigCameraSettings";
+    case OMX_IndexConfigDrawBoxLineParams:
+      return "OMX_IndexConfigDrawBoxLineParams";
+    case OMX_IndexParamCameraRmiControl_Deprecated:
+      return "OMX_IndexParamCameraRmiControl_Deprecated";
+    case OMX_IndexConfigBurstCapture:
+      return "OMX_IndexConfigBurstCapture";
+    case OMX_IndexParamBrcmEnableIJGTableScaling:
+      return "OMX_IndexParamBrcmEnableIJGTableScaling";
+    case OMX_IndexConfigPowerDown:
+      return "OMX_IndexConfigPowerDown";
+    case OMX_IndexConfigBrcmSyncOutput:
+      return "OMX_IndexConfigBrcmSyncOutput";
+    case OMX_IndexParamBrcmFlushCallback:
+      return "OMX_IndexParamBrcmFlushCallback";
+    case OMX_IndexConfigBrcmVideoRequestIFrame:
+      return "OMX_IndexConfigBrcmVideoRequestIFrame";
+    case OMX_IndexParamBrcmNALSSeparate:
+      return "OMX_IndexParamBrcmNALSSeparate";
+    case OMX_IndexConfigConfirmView:
+      return "OMX_IndexConfigConfirmView";
+    case OMX_IndexConfigDrmView:
+      return "OMX_IndexConfigDrmView";
+    case OMX_IndexConfigBrcmVideoIntraRefresh:
+      return "OMX_IndexConfigBrcmVideoIntraRefresh";
+    case OMX_IndexParamBrcmMaxFileSize:
+      return "OMX_IndexParamBrcmMaxFileSize";
+    case OMX_IndexParamBrcmCRCEnable:
+      return "OMX_IndexParamBrcmCRCEnable";
+    case OMX_IndexParamBrcmCRC:
+      return "OMX_IndexParamBrcmCRC";
+    case OMX_IndexConfigCameraRmiInUse_Deprecated:
+      return "OMX_IndexConfigCameraRmiInUse_Deprecated";
+    case OMX_IndexConfigBrcmAudioSource:
+      return "OMX_IndexConfigBrcmAudioSource";
+    case OMX_IndexConfigBrcmAudioDestination:
+      return "OMX_IndexConfigBrcmAudioDestination";
+    case OMX_IndexParamAudioDdp:
+      return "OMX_IndexParamAudioDdp";
+    case OMX_IndexParamBrcmThumbnail:
+      return "OMX_IndexParamBrcmThumbnail";
+    case OMX_IndexParamBrcmDisableLegacyBlocks_Deprecated:
+      return "OMX_IndexParamBrcmDisableLegacyBlocks_Deprecated";
+    case OMX_IndexParamBrcmCameraInputAspectRatio:
+      return "OMX_IndexParamBrcmCameraInputAspectRatio";
+    case OMX_IndexParamDynamicParameterFileFailFatal:
+      return "OMX_IndexParamDynamicParameterFileFailFatal";
+    case OMX_IndexParamBrcmVideoDecodeErrorConcealment:
+      return "OMX_IndexParamBrcmVideoDecodeErrorConcealment";
+    case OMX_IndexParamBrcmInterpolateMissingTimestamps:
+      return "OMX_IndexParamBrcmInterpolateMissingTimestamps";
+    case OMX_IndexParamBrcmSetCodecPerformanceMonitoring:
+      return "OMX_IndexParamBrcmSetCodecPerformanceMonitoring";
+    case OMX_IndexConfigFlashInfo:
+      return "OMX_IndexConfigFlashInfo";
+    case OMX_IndexParamBrcmMaxFrameSkips:
+      return "OMX_IndexParamBrcmMaxFrameSkips";
+    case OMX_IndexConfigDynamicRangeExpansion:
+      return "OMX_IndexConfigDynamicRangeExpansion";
+    case OMX_IndexParamBrcmFlushCallbackId:
+      return "OMX_IndexParamBrcmFlushCallbackId";
+    case OMX_IndexParamBrcmTransposeBufferCount:
+      return "OMX_IndexParamBrcmTransposeBufferCount";
+    case OMX_IndexConfigFaceRecognitionControl:
+      return "OMX_IndexConfigFaceRecognitionControl";
+    case OMX_IndexConfigFaceRecognitionSaveFace:
+      return "OMX_IndexConfigFaceRecognitionSaveFace";
+    case OMX_IndexConfigFaceRecognitionDatabaseUri:
+      return "OMX_IndexConfigFaceRecognitionDatabaseUri";
+    case OMX_IndexConfigClockAdjustment:
+      return "OMX_IndexConfigClockAdjustment";
+    case OMX_IndexParamBrcmThreadAffinity:
+      return "OMX_IndexParamBrcmThreadAffinity";
+    case OMX_IndexParamAsynchronousOutput:
+      return "OMX_IndexParamAsynchronousOutput";
+    case OMX_IndexConfigAsynchronousFailureURI:
+      return "OMX_IndexConfigAsynchronousFailureURI";
+    case OMX_IndexConfigCommonFaceBeautification:
+      return "OMX_IndexConfigCommonFaceBeautification";
+    case OMX_IndexConfigCommonSceneDetectionControl:
+      return "OMX_IndexConfigCommonSceneDetectionControl";
+    case OMX_IndexConfigCommonSceneDetected:
+      return "OMX_IndexConfigCommonSceneDetected";
+    case OMX_IndexParamDisableVllPool:
+      return "OMX_IndexParamDisableVllPool";
+    case OMX_IndexParamVideoMvc:
+      return "OMX_IndexParamVideoMvc";
+    case OMX_IndexConfigBrcmDrawStaticBox:
+      return "OMX_IndexConfigBrcmDrawStaticBox";
+    case OMX_IndexConfigBrcmClockReferenceSource:
+      return "OMX_IndexConfigBrcmClockReferenceSource";
+    case OMX_IndexParamPassBufferMarks:
+      return "OMX_IndexParamPassBufferMarks";
+    case OMX_IndexConfigPortCapturing:
+      return "OMX_IndexConfigPortCapturing";
+    case OMX_IndexConfigBrcmDecoderPassThrough:
+      return "OMX_IndexConfigBrcmDecoderPassThrough";
+    case OMX_IndexParamBrcmMaxCorruptMBs:
+      return "OMX_IndexParamBrcmMaxCorruptMBs";
+    case OMX_IndexConfigBrcmGlobalAudioMute:
+      return "OMX_IndexConfigBrcmGlobalAudioMute";
+    case OMX_IndexParamCameraCaptureMode:
+      return "OMX_IndexParamCameraCaptureMode";
+    case OMX_IndexParamBrcmDrmEncryption:
+      return "OMX_IndexParamBrcmDrmEncryption";
+    case OMX_IndexConfigBrcmCameraRnDPreprocess:
+      return "OMX_IndexConfigBrcmCameraRnDPreprocess";
+    case OMX_IndexConfigBrcmCameraRnDPostprocess:
+      return "OMX_IndexConfigBrcmCameraRnDPostprocess";
+    case OMX_IndexConfigBrcmAudioTrackChangeCount:
+      return "OMX_IndexConfigBrcmAudioTrackChangeCount";
+    case OMX_IndexParamCommonUseStcTimestamps:
+      return "OMX_IndexParamCommonUseStcTimestamps";
+    case OMX_IndexConfigBufferStall:
+      return "OMX_IndexConfigBufferStall";
+    case OMX_IndexConfigRefreshCodec:
+      return "OMX_IndexConfigRefreshCodec";
+    case OMX_IndexParamCaptureStatus:
+      return "OMX_IndexParamCaptureStatus";
+    case OMX_IndexConfigTimeInvalidStartTime:
+      return "OMX_IndexConfigTimeInvalidStartTime";
+    case OMX_IndexConfigLatencyTarget:
+      return "OMX_IndexConfigLatencyTarget";
+    case OMX_IndexConfigMinimiseFragmentation:
+      return "OMX_IndexConfigMinimiseFragmentation";
+    case OMX_IndexConfigBrcmUseProprietaryCallback:
+      return "OMX_IndexConfigBrcmUseProprietaryCallback";
+    case OMX_IndexParamPortMaxFrameSize:
+      return "OMX_IndexParamPortMaxFrameSize";
+    case OMX_IndexParamComponentName:
+      return "OMX_IndexParamComponentName";
+    case OMX_IndexConfigEncLevelExtension:
+      return "OMX_IndexConfigEncLevelExtension";
+    case OMX_IndexConfigTemporalDenoiseEnable:
+      return "OMX_IndexConfigTemporalDenoiseEnable";
+    case OMX_IndexParamBrcmLazyImagePoolDestroy:
+      return "OMX_IndexParamBrcmLazyImagePoolDestroy";
+    case OMX_IndexParamBrcmEEDEEnable:
+      return "OMX_IndexParamBrcmEEDEEnable";
+    case OMX_IndexParamBrcmEEDELossRate:
+      return "OMX_IndexParamBrcmEEDELossRate";
+    case OMX_IndexParamAudioDts:
+      return "OMX_IndexParamAudioDts";
+    case OMX_IndexParamNumOutputChannels:
+      return "OMX_IndexParamNumOutputChannels";
+    case OMX_IndexConfigBrcmHighDynamicRange:
+      return "OMX_IndexConfigBrcmHighDynamicRange";
+    case OMX_IndexConfigBrcmPoolMemAllocSize:
+      return "OMX_IndexConfigBrcmPoolMemAllocSize";
+    case OMX_IndexConfigBrcmBufferFlagFilter:
+      return "OMX_IndexConfigBrcmBufferFlagFilter";
+    case OMX_IndexParamBrcmVideoEncodeMinQuant:
+      return "OMX_IndexParamBrcmVideoEncodeMinQuant";
+    case OMX_IndexParamBrcmVideoEncodeMaxQuant:
+      return "OMX_IndexParamBrcmVideoEncodeMaxQuant";
+    case OMX_IndexParamRateControlModel:
+      return "OMX_IndexParamRateControlModel";
+    case OMX_IndexParamBrcmExtraBuffers:
+      return "OMX_IndexParamBrcmExtraBuffers";
+    case OMX_IndexConfigFieldOfView:
+      return "OMX_IndexConfigFieldOfView";
+    case OMX_IndexParamBrcmAlignHoriz:
+      return "OMX_IndexParamBrcmAlignHoriz";
+    case OMX_IndexParamBrcmAlignVert:
+      return "OMX_IndexParamBrcmAlignVert";
+    case OMX_IndexParamColorSpace:
+      return "OMX_IndexParamColorSpace";
+    case OMX_IndexParamBrcmDroppablePFrames:
+      return "OMX_IndexParamBrcmDroppablePFrames";
+    case OMX_IndexParamBrcmVideoInitialQuant:
+      return "OMX_IndexParamBrcmVideoInitialQuant";
+    case OMX_IndexParamBrcmVideoEncodeQpP:
+      return "OMX_IndexParamBrcmVideoEncodeQpP";
+    case OMX_IndexParamBrcmVideoRCSliceDQuant:
+      return "OMX_IndexParamBrcmVideoRCSliceDQuant";
+    case OMX_IndexParamBrcmVideoFrameLimitBits:
+      return "OMX_IndexParamBrcmVideoFrameLimitBits";
+    case OMX_IndexParamBrcmVideoPeakRate:
+      return "OMX_IndexParamBrcmVideoPeakRate";
+    case OMX_IndexConfigBrcmVideoH264DisableCABAC:
+      return "OMX_IndexConfigBrcmVideoH264DisableCABAC";
+    case OMX_IndexConfigBrcmVideoH264LowLatency:
+      return "OMX_IndexConfigBrcmVideoH264LowLatency";
+    case OMX_IndexConfigBrcmVideoH264AUDelimiters:
+      return "OMX_IndexConfigBrcmVideoH264AUDelimiters";
+    case OMX_IndexConfigBrcmVideoH264DeblockIDC:
+      return "OMX_IndexConfigBrcmVideoH264DeblockIDC";
+    case OMX_IndexConfigBrcmVideoH264IntraMBMode:
+      return "OMX_IndexConfigBrcmVideoH264IntraMBMode";
+    case OMX_IndexConfigContrastEnhance:
+      return "OMX_IndexConfigContrastEnhance";
+    case OMX_IndexParamCameraCustomSensorConfig:
+      return "OMX_IndexParamCameraCustomSensorConfig";
+    case OMX_IndexParamBrcmHeaderOnOpen:
+      return "OMX_IndexParamBrcmHeaderOnOpen";
+    case OMX_IndexConfigBrcmUseRegisterFile:
+      return "OMX_IndexConfigBrcmUseRegisterFile";
+    case OMX_IndexConfigBrcmRegisterFileFailFatal:
+      return "OMX_IndexConfigBrcmRegisterFileFailFatal";
+    case OMX_IndexParamBrcmConfigFileRegisters:
+      return "OMX_IndexParamBrcmConfigFileRegisters";
+    case OMX_IndexParamBrcmConfigFileChunkRegisters:
+      return "OMX_IndexParamBrcmConfigFileChunkRegisters";
+    case OMX_IndexParamBrcmAttachLog:
+      return "OMX_IndexParamBrcmAttachLog";
+    case OMX_IndexParamCameraZeroShutterLag:
+      return "OMX_IndexParamCameraZeroShutterLag";
+    case OMX_IndexParamBrcmFpsRange:
+      return "OMX_IndexParamBrcmFpsRange";
+    case OMX_IndexParamCaptureExposureCompensation:
+      return "OMX_IndexParamCaptureExposureCompensation";
+    case OMX_IndexParamBrcmVideoPrecodeForQP:
+      return "OMX_IndexParamBrcmVideoPrecodeForQP";
+    case OMX_IndexParamBrcmVideoTimestampFifo:
+      return "OMX_IndexParamBrcmVideoTimestampFifo";
+    case OMX_IndexParamSWSharpenDisable:
+      return "OMX_IndexParamSWSharpenDisable";
+    case OMX_IndexConfigBrcmFlashRequired:
+      return "OMX_IndexConfigBrcmFlashRequired";
+    case OMX_IndexParamBrcmVideoDrmProtectBuffer:
+      return "OMX_IndexParamBrcmVideoDrmProtectBuffer";
+    case OMX_IndexParamSWSaturationDisable:
+      return "OMX_IndexParamSWSaturationDisable";
+    case OMX_IndexParamBrcmVideoDecodeConfigVD3:
+      return "OMX_IndexParamBrcmVideoDecodeConfigVD3";
+    case OMX_IndexConfigBrcmPowerMonitor:
+      return "OMX_IndexConfigBrcmPowerMonitor";
+    case OMX_IndexParamBrcmZeroCopy:
+      return "OMX_IndexParamBrcmZeroCopy";
+    case OMX_IndexParamBrcmVideoEGLRenderDiscardMode:
+      return "OMX_IndexParamBrcmVideoEGLRenderDiscardMode";
+    case OMX_IndexParamBrcmVideoAVC_VCLHRDEnable:
+      return "OMX_IndexParamBrcmVideoAVC_VCLHRDEnable";
+    case OMX_IndexParamBrcmVideoAVC_LowDelayHRDEnable:
+      return "OMX_IndexParamBrcmVideoAVC_LowDelayHRDEnable";
+    case OMX_IndexParamBrcmVideoCroppingDisable:
+      return "OMX_IndexParamBrcmVideoCroppingDisable";
+    case OMX_IndexParamBrcmVideoAVCInlineHeaderEnable:
+      return "OMX_IndexParamBrcmVideoAVCInlineHeaderEnable";
+    case OMX_IndexConfigBrcmAudioDownmixCoefficients:
+      return "OMX_IndexConfigBrcmAudioDownmixCoefficients";
+    case OMX_IndexConfigBrcmAudioDownmixCoefficients8x8:
+      return "OMX_IndexConfigBrcmAudioDownmixCoefficients8x8";
+    case OMX_IndexConfigBrcmAudioMaxSample:
+      return "OMX_IndexConfigBrcmAudioMaxSample";
+    case OMX_IndexConfigCustomAwbGains:
+      return "OMX_IndexConfigCustomAwbGains";
+    case OMX_IndexParamRemoveImagePadding:
+      return "OMX_IndexParamRemoveImagePadding";
+    case OMX_IndexParamBrcmVideoAVCInlineVectorsEnable:
+      return "OMX_IndexParamBrcmVideoAVCInlineVectorsEnable";
+    case OMX_IndexConfigBrcmRenderStats:
+      return "OMX_IndexConfigBrcmRenderStats";
+    case OMX_IndexConfigBrcmCameraAnnotate:
+      return "OMX_IndexConfigBrcmCameraAnnotate";
+    case OMX_IndexParamBrcmStereoscopicMode:
+      return "OMX_IndexParamBrcmStereoscopicMode";
+    case OMX_IndexParamBrcmLockStepEnable:
+      return "OMX_IndexParamBrcmLockStepEnable";
+    case OMX_IndexParamBrcmTimeScale:
+      return "OMX_IndexParamBrcmTimeScale";
+    case OMX_IndexParamCameraInterface:
+      return "OMX_IndexParamCameraInterface";
+    case OMX_IndexParamCameraClockingMode:
+      return "OMX_IndexParamCameraClockingMode";
+    case OMX_IndexParamCameraRxConfig:
+      return "OMX_IndexParamCameraRxConfig";
+    case OMX_IndexParamCameraRxTiming:
+      return "OMX_IndexParamCameraRxTiming";
+    case OMX_IndexMax:
+      return "OMX_IndexMax";
+  }
+
+  return "";
+}
+
 #if defined(USE_OMX_TARGET_RPI)
 #define DEFAULT_HACKS (GST_OMX_HACK_NO_COMPONENT_ROLE)
 #else
@@ -2734,6 +3590,10 @@ plugin_init (GstPlugin * plugin)
   static const gchar *env_config_name[] = { "GST_OMX_CONFIG_DIR", NULL };
 
   GST_DEBUG_CATEGORY_INIT (gstomx_debug, "omx", 0, "gst-omx");
+  GST_DEBUG_CATEGORY_INIT (gstomxcalls_debug, "omxcalls", GST_DEBUG_FG_BLUE,
+      "Gst OMX calls to OMX");
+  GST_DEBUG_CATEGORY_INIT (gstomxcallbacks_debug, "omxcallbacks",
+      GST_DEBUG_FG_BLUE, "Callbacks from OMX");
 
   /* Read configuration file gstomx.conf from the preferred
    * configuration directories */
