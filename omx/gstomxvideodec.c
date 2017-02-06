@@ -592,7 +592,11 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
     omx_buf =
         gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buffer),
         gst_omx_buffer_data_quark);
-    if (pool->port->port_def.eDir == OMX_DirOutput && !omx_buf->used) {
+
+    if (omx_buf == NULL) {
+      GST_ERROR_OBJECT (bpool, "Buffer %" GST_PTR_FORMAT " has no omx buffer",
+          buffer);
+    } else if (pool->port->port_def.eDir == OMX_DirOutput && !omx_buf->used) {
       /* Release back to the port, can be filled again */
       err = gst_omx_port_release_buffer (pool->port, omx_buf);
       if (err != OMX_ErrorNone) {
