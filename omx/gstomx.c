@@ -1387,7 +1387,7 @@ gst_omx_port_release_buffer (GstOMXPort * port, GstOMXBuffer * buf)
     goto done;
   }
 
-  if (port->flushing) {
+  if (port->flushing && port->port_def.eDir == OMX_DirInput) {
     GST_DEBUG_OBJECT (comp->parent, "%s port %u is flushing, not releasing "
         "buffer", comp->name, port->index);
     g_queue_push_tail (&port->pending_buffers, buf);
