@@ -674,6 +674,8 @@ gst_omx_buffer_pool_new (GstElement * element, GstOMXComponent * component,
   return GST_BUFFER_POOL (pool);
 }
 
+static gboolean gst_omx_video_dec_negotiate (GstOMXVideoDec * self);
+
 /* prototypes */
 static void gst_omx_video_dec_finalize (GObject * object);
 
@@ -2362,8 +2364,6 @@ done:
 
   return err;
 }
-
-static gboolean gst_omx_video_dec_negotiate (GstOMXVideoDec * self);
 
 static void
 gst_omx_video_dec_loop (GstOMXVideoDec * self)
