@@ -2629,6 +2629,8 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         goto invalid_buffer;
       }
 
+      gst_buffer_ref (outbuf);
+
       /* release buf before to push it */
       gst_omx_port_release_buffer (port, buf);
       buf = NULL;
