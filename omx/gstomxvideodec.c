@@ -3786,16 +3786,17 @@ gst_omx_video_dec_flush (GstVideoDecoder * decoder)
   }
 #endif
 
-  g_mutex_lock (&self->drain_lock);
-  self->flushing = TRUE;
-  g_cond_broadcast (&self->drain_cond);
-  g_mutex_unlock (&self->drain_lock);
-
   /* Wait until the srcpad loop is finished,
    * unlock GST_VIDEO_DECODER_STREAM_LOCK to prevent deadlocks
    * caused by using this lock from inside the loop function */
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
   GST_PAD_STREAM_LOCK (GST_VIDEO_DECODER_SRC_PAD (self));
+
+  g_mutex_lock (&self->drain_lock);
+  self->flushing = TRUE;
+  g_cond_broadcast (&self->drain_cond);
+  g_mutex_unlock (&self->drain_lock);
+
   GST_PAD_STREAM_UNLOCK (GST_VIDEO_DECODER_SRC_PAD (self));
   GST_VIDEO_DECODER_STREAM_LOCK (self);
 

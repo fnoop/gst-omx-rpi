@@ -1351,15 +1351,34 @@ retry:
    */
   gst_omx_component_handle_messages (comp);
   if (g_queue_is_empty (&port->pending_buffers)) {
+    gboolean flushing = port->flushing;
+
     GST_DEBUG_OBJECT (comp->parent, "Queue of %s port %u is empty",
         comp->name, port->index);
     g_mutex_lock (&comp->messages_lock);
     g_mutex_unlock (&comp->lock);
-    if (g_queue_is_empty (&comp->messages))
+    if (g_queue_is_empty (&comp->messages) || flushing) {
       g_cond_wait (&comp->messages_cond, &comp->messages_lock);
+
+      /* Re check if we are flushing */
+      g_mutex_unlock (&comp->messages_lock);
+      g_mutex_lock (&comp->lock);
+      flushing = port->flushing;
+      g_mutex_unlock (&comp->lock);
+      g_mutex_lock (&comp->messages_lock);
+    }
+
     g_mutex_unlock (&comp->messages_lock);
     g_mutex_lock (&comp->lock);
     gst_omx_component_handle_messages (comp);
+
+    if (flushing) {
+      GST_INFO_OBJECT (comp->parent, "Flushing, stop trying to acquire"
+          " a buffer");
+      ret = GST_OMX_ACQUIRE_BUFFER_FLUSHING;
+
+      goto done;
+    }
 
     /* And now check everything again and maybe get a buffer */
     goto retry;
