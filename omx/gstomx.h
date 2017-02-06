@@ -332,6 +332,7 @@ OMX_ERRORTYPE     gst_omx_port_populate (GstOMXPort *port);
 OMX_ERRORTYPE     gst_omx_port_wait_buffers_released (GstOMXPort * port, GstClockTime timeout);
 
 OMX_ERRORTYPE     gst_omx_port_mark_reconfigured (GstOMXPort * port);
+OMX_ERRORTYPE     gst_omx_port_mark_to_reconfigure (GstOMXPort * port);
 
 OMX_ERRORTYPE     gst_omx_port_set_enabled (GstOMXPort * port, gboolean enabled);
 OMX_ERRORTYPE     gst_omx_port_wait_enabled (GstOMXPort * port, GstClockTime timeout);

@@ -2308,6 +2308,39 @@ done:
   return err;
 }
 
+/* NOTE: Uses comp->lock and comp->messages_lock */
+OMX_ERRORTYPE
+gst_omx_port_mark_to_reconfigure (GstOMXPort * port)
+{
+  GstOMXComponent *comp;
+  OMX_ERRORTYPE err = OMX_ErrorNone;
+
+  g_return_val_if_fail (port != NULL, OMX_ErrorUndefined);
+
+  comp = port->comp;
+
+  g_mutex_lock (&comp->lock);
+  GST_INFO_OBJECT (comp->parent, "Marking %s port %u to reconfigure",
+      comp->name, port->index);
+
+  gst_omx_component_handle_messages (comp);
+
+  if ((err = comp->last_error) != OMX_ErrorNone)
+    goto done;
+
+  port->settings_cookie = 0;
+
+done:
+  gst_omx_port_update_port_definition (port, NULL);
+
+  GST_INFO_OBJECT (comp->parent, "Marked %s port %u to reconfigure: %s "
+      "(0x%08x)", comp->name, port->index, gst_omx_error_to_string (err), err);
+
+  g_mutex_unlock (&comp->lock);
+
+  return err;
+}
+
 typedef GType (*GGetTypeFunction) (void);
 
 static const GGetTypeFunction types[] = {

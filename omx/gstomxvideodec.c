@@ -687,6 +687,8 @@ static gboolean gst_omx_video_dec_start (GstVideoDecoder * decoder);
 static gboolean gst_omx_video_dec_stop (GstVideoDecoder * decoder);
 static gboolean gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state);
+static gboolean gst_omx_video_dec_src_event (GstVideoDecoder * decoder,
+    GstEvent * event);
 static gboolean gst_omx_video_dec_flush (GstVideoDecoder * decoder);
 static GstFlowReturn gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
@@ -736,6 +738,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
   video_decoder_class->flush = GST_DEBUG_FUNCPTR (gst_omx_video_dec_flush);
   video_decoder_class->set_format =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_set_format);
+  video_decoder_class->src_event =
+      GST_DEBUG_FUNCPTR (gst_omx_video_dec_src_event);
   video_decoder_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_handle_frame);
   video_decoder_class->finish = GST_DEBUG_FUNCPTR (gst_omx_video_dec_finish);
@@ -1930,6 +1934,9 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
 
   /* At this point the decoder output port is disabled */
 
+  /* query downstream caps and set component format */
+  gst_omx_video_dec_negotiate (self);
+
 #if defined (USE_OMX_TARGET_RPI)
 #if defined (HAVE_GST_EGL)
   {
@@ -2097,7 +2104,9 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
   if (self->try_resizer) {
     OMX_STATETYPE res_state;
 
-    if (self->use_resizer) {
+    if (self->use_resizer
+        && gst_omx_component_get_state (self->resizer,
+            0) == OMX_StateExecuting) {
       /* Nothing to do here */
       err = OMX_ErrorNone;
       port = self->res_out_port;
@@ -2401,6 +2410,19 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     /* Reallocate all buffers */
     if (acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE
         && gst_omx_port_is_enabled (port)) {
+
+#if defined (USE_OMX_TARGET_RPI)
+      if (self->use_resizer
+          && gst_omx_component_get_state (self->resizer,
+              0) == OMX_StateExecuting) {
+        gst_omx_component_set_state (self->resizer, OMX_StatePause);
+        gst_omx_component_get_state (self->resizer, GST_CLOCK_TIME_NONE);
+
+        gst_pad_peer_query (GST_VIDEO_DECODER_SRC_PAD (self),
+            gst_query_new_drain ());
+      }
+#endif
+
       err = gst_omx_port_set_enabled (port, FALSE);
       if (err != OMX_ErrorNone)
         goto reconfigure_error;
@@ -3460,9 +3482,6 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     if (gst_omx_port_mark_reconfigured (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
   } else {
-    if (!gst_omx_video_dec_negotiate (self))
-      GST_LOG_OBJECT (self, "Negotiation failed, will get output format later");
-
     /* Disable output port */
     if (gst_omx_port_set_enabled (self->dec_out_port, FALSE) != OMX_ErrorNone)
       return FALSE;
@@ -3510,6 +3529,44 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       (GstTaskFunction) gst_omx_video_dec_loop, decoder, NULL);
 
   return TRUE;
+}
+
+static gboolean
+gst_omx_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  gboolean ret = FALSE;
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (decoder);
+
+#if defined (USE_OMX_TARGET_RPI)
+  OMX_ERRORTYPE err = OMX_ErrorNone;
+#endif
+
+  GST_DEBUG_OBJECT (decoder, "handling event %p %" GST_PTR_FORMAT, event,
+      event);
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_RECONFIGURE:
+    {
+#if defined (USE_OMX_TARGET_RPI)
+      if (gst_omx_component_get_state (self->resizer, 0) == OMX_StateExecuting) {
+        err = gst_omx_port_mark_to_reconfigure (self->res_out_port);
+        if (err != OMX_ErrorNone)
+          GST_DEBUG_OBJECT (self, "failed to reset resizer output port");
+      }
+#endif
+      ret =
+          GST_VIDEO_DECODER_CLASS (gst_omx_video_dec_parent_class)->src_event
+          (decoder, event);
+      break;
+    }
+    default:
+      ret =
+          GST_VIDEO_DECODER_CLASS (gst_omx_video_dec_parent_class)->src_event
+          (decoder, event);
+      break;
+  }
+
+  return ret;
 }
 
 static gboolean
