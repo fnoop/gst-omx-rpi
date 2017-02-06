@@ -28,6 +28,13 @@
 #include <gst/video/gstvideometa.h>
 #include <gst/video/gstvideopool.h>
 
+#ifdef USE_OMX_TARGET_RPI       /* Used to check if /dev/vchiq is accessible */
+#define RPI_DEVICE "/dev/vchiq"
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#endif
+
 #if defined (USE_OMX_TARGET_RPI) && defined(__GNUC__)
 #ifndef __VCCOREVER__
 #define __VCCOREVER__ 0x04000000
@@ -798,6 +805,18 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
   gint in_port_index, out_port_index;
 
   GST_DEBUG_OBJECT (self, "Opening decoder");
+#ifdef USE_OMX_TARGET_RPI
+  {
+    int device_accessible = access (RPI_DEVICE, R_OK | W_OK);
+
+    if (device_accessible != 0) {
+      GST_ERROR_OBJECT (self, RPI_DEVICE " not accessible, reason: %s",
+          strerror (errno));
+
+      return FALSE;
+    }
+  }
+#endif
 
   self->dec =
       gst_omx_component_new (GST_OBJECT_CAST (self), klass->cdata.core_name,
