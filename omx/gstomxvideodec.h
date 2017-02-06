@@ -79,9 +79,17 @@ struct _GstOMXVideoDec
 
   GstFlowReturn downstream_flow_ret;
 #ifdef USE_OMX_TARGET_RPI
+#if defined (HAVE_GST_EGL)
   GstOMXComponent *egl_render;
   GstOMXPort *egl_in_port, *egl_out_port;
   gboolean eglimage;
+#endif
+  GstOMXComponent *resizer;
+  GstOMXPort *res_in_port, *res_out_port;
+  gboolean try_resizer;
+  gboolean use_resizer;
+  OMX_COLOR_FORMATTYPE resize_color;
+  GstVideoFormat resize_format;
 #endif
 };
 
