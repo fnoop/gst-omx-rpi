@@ -81,7 +81,7 @@ struct _GstOMXVideoDec
 
   GstFlowReturn downstream_flow_ret;
 #ifdef USE_OMX_TARGET_RPI
-#if defined (HAVE_GST_EGL)
+#if defined (HAVE_GST_GL)
   GstOMXComponent *egl_render;
   GstOMXPort *egl_in_port, *egl_out_port;
   gboolean eglimage;
