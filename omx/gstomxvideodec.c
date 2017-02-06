@@ -2100,6 +2100,9 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       port = self->res_out_port;
       goto enable_port;
     } else {
+      GstStructure *config = NULL;
+      GstBufferPool *pool = NULL;
+
       /* Set up resize component */
       self->use_resizer = TRUE;
 
@@ -2108,10 +2111,10 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       gst_omx_port_get_port_definition (self->dec_out_port, &port_def);
 
       GST_VIDEO_DECODER_STREAM_LOCK (self);
+
       state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
           self->resize_format, port_def.format.video.nFrameWidth,
-          GST_ROUND_UP_16 (port_def.format.video.nFrameHeight),
-          self->input_state);
+          port_def.format.video.nFrameHeight, self->input_state);
 
       if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (self))) {
         gst_video_codec_state_unref (state);
@@ -2120,9 +2123,40 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
         goto no_res;
       }
 
+      gst_video_codec_state_unref (state);
+      state = NULL;
+
+      pool = gst_video_decoder_get_buffer_pool (GST_VIDEO_DECODER (self));
+      config = gst_buffer_pool_get_config (pool);
+      gst_object_unref (pool);
+
+      /* resizer only support height been multiple of 16 */
+      if (!gst_buffer_pool_config_has_option (config,
+              GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT)
+          && port_def.format.video.nFrameHeight !=
+          GST_ROUND_UP_16 (port_def.format.video.nFrameHeight)) {
+        GST_DEBUG_OBJECT (self, "negotiated pool do not support alignment");
+
+        /* use GST_ROUND_UP_16 this time */
+        state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
+            self->resize_format, port_def.format.video.nFrameWidth,
+            GST_ROUND_UP_16 (port_def.format.video.nFrameHeight),
+            self->input_state);
+
+        if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (self))) {
+          gst_video_codec_state_unref (state);
+          GST_ERROR_OBJECT (self, "Failed to re-negotiate resizer");
+          GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+          gst_structure_free (config);
+          goto no_res;
+        }
+
+        gst_video_codec_state_unref (state);
+      }
+      gst_structure_free (config);
+
       /* Now link it all together */
 
-      gst_video_codec_state_unref (state);
       GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
       err = gst_omx_port_set_enabled (self->res_in_port, FALSE);
@@ -3901,8 +3935,9 @@ gst_omx_video_dec_drain (GstOMXVideoDec * self, gboolean is_eos)
 static gboolean
 gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
 {
-  GstBufferPool *pool;
-  GstStructure *config;
+  GstBufferPool *pool = NULL;
+  GstStructure *config = NULL;
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (bdec);
 
 #if defined (USE_OMX_TARGET_RPI) && defined (HAVE_GST_EGL)
   {
@@ -3943,9 +3978,33 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
 
   config = gst_buffer_pool_get_config (pool);
   if (gst_query_find_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL)) {
+
+#if defined (USE_OMX_TARGET_RPI)
+    GstCaps *caps = NULL;
+    GstVideoInfo info;
+    GstVideoAlignment align;
+
+    gst_video_info_init (&info);
+    gst_video_alignment_reset (&align);
+#endif
+
     gst_buffer_pool_config_add_option (config,
         GST_BUFFER_POOL_OPTION_VIDEO_META);
+
+#if defined (USE_OMX_TARGET_RPI)
+    /* resizer always output multiple of 16 */
+    if (self->use_resizer) {
+      gst_query_parse_allocation (query, &caps, NULL);
+      if (caps && gst_video_info_from_caps (&info, caps)) {
+        gst_buffer_pool_config_add_option (config,
+            GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT);
+        align.padding_bottom = GST_ROUND_UP_16 (GST_VIDEO_INFO_HEIGHT (&info));
+        gst_buffer_pool_config_set_video_alignment (config, &align);
+      }
+    }
+#endif
   }
+
   gst_buffer_pool_set_config (pool, config);
   gst_object_unref (pool);
 
